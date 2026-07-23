@@ -1,5 +1,8 @@
+process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
+
 /**
  * shopee-vd-api — server.js
+
  *
  * Servidor Express principal.
  * Inicia na porta PORT (padrão 3001).
