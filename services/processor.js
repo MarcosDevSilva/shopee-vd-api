@@ -16,13 +16,20 @@ const { v4: uuidv4 } = require("uuid");
 const TMP_DIR = path.join(__dirname, "..", "tmp", "videos");
 if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 
+const ffmpegPath = require("ffmpeg-static");
+
 /* ── Verificar se FFmpeg está disponível ─────────────── */
 
-let FFMPEG_AVAILABLE = false;
-exec("ffmpeg -version", (err) => {
-  FFMPEG_AVAILABLE = !err;
-  console.log(`[Processor] FFmpeg disponível: ${FFMPEG_AVAILABLE}`);
-});
+let FFMPEG_AVAILABLE = !!ffmpegPath;
+if (!FFMPEG_AVAILABLE) {
+  exec("ffmpeg -version", (err) => {
+    FFMPEG_AVAILABLE = !err;
+    console.log(`[Processor] FFmpeg via sistema disponível: ${FFMPEG_AVAILABLE}`);
+  });
+} else {
+  console.log(`[Processor] FFmpeg via ffmpeg-static ativo: ${ffmpegPath}`);
+}
+
 
 /* ── Download do vídeo ────────────────────────────────── */
 
@@ -110,7 +117,8 @@ async function downloadFile(url, destPath) {
  */
 function removeMetadataFFmpeg(inputPath, outputPath) {
   return new Promise((resolve, reject) => {
-    const cmd = `ffmpeg -y -i "${inputPath}" -map_metadata -1 -c copy "${outputPath}"`;
+    const bin = ffmpegPath || "ffmpeg";
+    const cmd = `"${bin}" -y -i "${inputPath}" -map_metadata -1 -c copy "${outputPath}"`;
     exec(cmd, (err, stdout, stderr) => {
       if (err) {
         console.error("[FFmpeg] Erro:", stderr);
@@ -121,6 +129,7 @@ function removeMetadataFFmpeg(inputPath, outputPath) {
     });
   });
 }
+
 
 /**
  * Retorna o caminho do arquivo pelo ID
