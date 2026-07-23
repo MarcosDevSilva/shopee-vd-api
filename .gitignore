@@ -1,0 +1,16 @@
+# Shopee VD API — arquivos temporários
+tmp/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Variáveis de ambiente (NUNCA suba isso!)
+.env
+.env.local
+.env.production
+
+# Editor
+.vscode/
+*.swp
+.DS_Store
