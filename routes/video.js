@@ -73,17 +73,24 @@ router.post("/info", async (req, res) => {
 
 /* ────────────────────────────────────────────────────────
    POST /api/video/process
-   Body: { url: string, removeMetadata: boolean }
+   Body: { url: string, removeMetadata: boolean, cleanWatermark: boolean, formatResolution: boolean, targetWidth: number, targetHeight: number }
    ────────────────────────────────────────────────────── */
 router.post("/process", async (req, res) => {
-  const { url, removeMetadata = true } = req.body;
+  const {
+    url,
+    removeMetadata = true,
+    cleanWatermark = true,
+    formatResolution = true,
+    targetWidth = 720,
+    targetHeight = 1080,
+  } = req.body;
 
   if (!url) {
     return res.status(400).json({ success: false, message: "URL não fornecida." });
   }
 
   try {
-    console.log("[/process] Processando:", url, "| removeMetadata:", removeMetadata);
+    console.log("[/process] Processando:", url, "| opções:", { removeMetadata, cleanWatermark, formatResolution, targetWidth, targetHeight });
 
     // 1. Extrair URL do vídeo (usa cache se disponível)
     let videoUrl;
@@ -97,7 +104,13 @@ router.post("/process", async (req, res) => {
     }
 
     // 2. Download + processamento
-    const result = await downloadAndProcess(videoUrl, removeMetadata);
+    const result = await downloadAndProcess(videoUrl, {
+      removeMetadata,
+      cleanWatermark,
+      formatResolution,
+      targetWidth: Number(targetWidth) || 720,
+      targetHeight: Number(targetHeight) || 1080,
+    });
 
     return res.json({
       success:  true,
