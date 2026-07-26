@@ -8,7 +8,7 @@
 const fs      = require("fs");
 const path    = require("path");
 const axios   = require("axios");
-const { exec } = require("child_process");
+const { exec, execFile } = require("child_process");
 const { v4: uuidv4 } = require("uuid");
 
 /* ── Diretório temporário ─────────────────────────────── */
@@ -115,60 +115,57 @@ async function downloadFile(url, destPath) {
 }
 
 /**
- * Processa o vídeo com FFmpeg:
+ * Processa o vídeo com FFmpeg usando execFile (sem shell):
  * - remove metadados (-map_metadata -1)
- * - corta marcas d'água de topo/rodapé (-vf crop=...)
- * - ajusta a resolução final (ex: 720x1080)
+ * - corta marcas d'água de topo/rodapé
+ * - ajusta resolução sem zoom (scale + pad)
  */
 function processVideoFFmpeg(inputPath, outputPath, opts) {
   return new Promise((resolve, reject) => {
     const bin = ffmpegPath || "ffmpeg";
     const filters = [];
 
-    // 1. Limpar marca d'água (Corta topo 12% e rodapé 12% onde ficam a logo Shopee e afiliado)
+    // ── 1. Remover marcas d'água ──────────────────────────────
+    // Remove 10% do topo (logo Shopee) e 12% do rodapé (afiliado)
     if (opts.cleanWatermark) {
-      filters.push("crop=in_w:in_h*0.76:0:in_h*0.12");
+      filters.push("crop=in_w:in_h*0.78:0:in_h*0.10");
     }
 
-    // 2. Formatar resolução (ex: 720x1080)
+    // ── 2. Ajustar resolução sem zoom (scale + pad) ───────────
+    // scale=720:-2  → escala pela largura, mantém proporção
+    // pad=720:1080  → centraliza verticalmente com barras pretas
     if (opts.formatResolution) {
-      const w = opts.targetWidth || 720;
+      const w = opts.targetWidth  || 720;
       const h = opts.targetHeight || 1080;
-      filters.push(`scale=${w}:${h}:force_original_aspect_ratio=increase`);
-      filters.push(`crop=${w}:${h}`);
+      filters.push(`scale=${w}:-2`);
+      filters.push(`pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:black`);
       filters.push("setsar=1");
     }
 
-    const vfFlag = filters.length > 0 ? `-vf "${filters.join(",")}"` : "";
-    const metaFlag = opts.removeMetadata ? "-map_metadata -1" : "";
+    // Monta args como array (sem shell — sem bugs de escape)
+    const args = ["-y", "-i", inputPath];
 
-    // Se não houver filtros de vídeo, copia os fluxos direto sem recodificar
-    const codecFlags = filters.length > 0
-      ? "-c:v libx264 -preset superfast -crf 20 -c:a copy -pix_fmt yuv420p"
-      : "-c copy";
+    if (opts.removeMetadata) {
+      args.push("-map_metadata", "-1");
+    }
 
-    const cmd = `"${bin}" -y -i "${inputPath}" ${metaFlag} ${vfFlag} ${codecFlags} "${outputPath}"`;
-    console.log("[FFmpeg] Executando:", cmd);
+    if (filters.length > 0) {
+      args.push("-vf", filters.join(","));
+      args.push("-c:v", "libx264", "-preset", "superfast", "-crf", "20");
+      args.push("-c:a", "aac", "-b:a", "128k");
+      args.push("-pix_fmt", "yuv420p");
+    } else {
+      args.push("-c", "copy");
+    }
 
-    exec(cmd, (err, stdout, stderr) => {
+    args.push(outputPath);
+
+    console.log("[FFmpeg] Executando:", bin, args.join(" "));
+
+    execFile(bin, args, { maxBuffer: 100 * 1024 * 1024, timeout: 180_000 }, (err, stdout, stderr) => {
       if (err) {
-        console.error("[FFmpeg] Erro no processamento principal:", stderr);
-        // Fallback: se "-c:a copy" falhar devido à incompatibilidade de áudio, recodifica o áudio em AAC
-        if (filters.length > 0 && codecFlags.includes("-c:a copy")) {
-          console.log("[FFmpeg] Tentando fallback recodificando áudio para AAC…");
-          const fallbackCodecFlags = "-c:v libx264 -preset superfast -crf 20 -c:a aac -b:a 128k -pix_fmt yuv420p";
-          const fallbackCmd = `"${bin}" -y -i "${inputPath}" ${metaFlag} ${vfFlag} ${fallbackCodecFlags} "${outputPath}"`;
-          exec(fallbackCmd, (err2, stdout2, stderr2) => {
-            if (err2) {
-              console.error("[FFmpeg] Erro no fallback:", stderr2);
-              reject(new Error("Falha ao processar vídeo com FFmpeg."));
-            } else {
-              resolve();
-            }
-          });
-        } else {
-          reject(new Error("Falha ao processar vídeo com FFmpeg."));
-        }
+        console.error("[FFmpeg] Erro:\n", stderr?.slice(-2000));
+        reject(new Error("Falha ao processar vídeo com FFmpeg: " + (stderr?.slice(-400) || err.message)));
       } else {
         resolve();
       }
